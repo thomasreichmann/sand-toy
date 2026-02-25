@@ -1331,7 +1331,10 @@ function loop(now) {
 
   fpsFrames++;
   if (now - fpsLast >= 500) {
-    fpsEl.textContent = (fpsFrames * 1000 / (now - fpsLast) + 0.5 | 0) + ' fps';
+    let count = 0;
+    const g = grid, len = W * H;
+    for (let j = 0; j < len; j++) if (g[j] !== 0) count++;
+    fpsEl.textContent = (fpsFrames * 1000 / (now - fpsLast) + 0.5 | 0) + ' fps · ' + count.toLocaleString() + ' particles';
     fpsFrames = 0;
     fpsLast = now;
   }
