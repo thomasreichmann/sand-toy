@@ -297,7 +297,8 @@
     </div>
     <h3>Controls</h3>
     <div class="help-grid">
-      <span><kbd>Space</kbd> Pause</span><span><kbd>[ ]</kbd> Brush size</span>
+      <span><kbd>Space</kbd> Pause</span><span><kbd>N</kbd> Step (paused)</span>
+      <span><kbd>[ ]</kbd> Brush size</span>
       <span><kbd>&#8984;&#9003;</kbd> Clear</span><span>Right-click Erase</span>
       <span><kbd>Alt</kbd>+click Pick</span><span><kbd>M</kbd> Mirror</span>
       <span><kbd>&#8984;Z</kbd> Undo</span><span><kbd>&#8984;S</kbd> Save</span>
@@ -680,6 +681,7 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'l') { e.preventDefault(); loadState(); return; }
   if (e.key === '[') { brushSize = Math.max(1, brushSize - 1); showBrushToast(); return; }
   if (e.key === ']') { brushSize = Math.min(24, brushSize + 1); showBrushToast(); return; }
+  if (e.key === 'n' || e.key === 'N') { if (paused) { simulate(); showBrushToastMsg('Step'); } return; }
   if (e.key === 'm' || e.key === 'M') { mirrorBtn.click(); return; }
   if (e.key === '?' || e.key === '/') { toggleHelp(); return; }
   if (e.key === 'Escape') { const h = document.getElementById('help-overlay'); if (h.classList.contains('visible')) { h.classList.remove('visible'); return; } }
