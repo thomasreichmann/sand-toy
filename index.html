@@ -258,6 +258,9 @@
     <button data-action="pause" class="icon-btn" title="Pause (Space)">&#9646;&#9646;</button>
     <button data-action="clear" class="icon-btn danger" title="Clear (⌘⌫)">&#9249;</button>
     <button data-action="help" class="icon-btn" title="Help (?)">?</button>
+    <div class="sep"></div>
+    <button data-action="save" class="icon-btn" title="Save (⌘S)">&#8595;</button>
+    <button data-action="load" class="icon-btn" title="Load (⌘L)">&#8593;</button>
   </div>
   <div class="panel-row">
     <button data-el="fire" style="--el-color:#e05530"><span class="swatch" style="background:#e05530"></span>Fire</button>
@@ -295,6 +298,7 @@
     <div class="help-grid">
       <span><kbd>Space</kbd> Pause</span><span><kbd>[ ]</kbd> Brush size</span>
       <span><kbd>&#8984;&#9003;</kbd> Clear</span><span><kbd>Alt</kbd>+click Pick</span>
+      <span><kbd>&#8984;S</kbd> Save</span><span><kbd>&#8984;L</kbd> Load</span>
       <span><kbd>?</kbd> This help</span>
     </div>
   </div>
@@ -467,6 +471,26 @@ document.querySelector('[data-action="clear"]').addEventListener('click', () => 
   grid.fill(0); colorGrid.fill(0); velGrid.fill(0);
 });
 document.querySelector('[data-action="help"]').addEventListener('click', toggleHelp);
+
+function saveState() {
+  try {
+    const data = { w: W, h: H, grid: Array.from(grid), color: Array.from(colorGrid) };
+    localStorage.setItem('sand-toy-save', JSON.stringify(data));
+    showBrushToastMsg('Saved');
+  } catch (e) { showBrushToastMsg('Save failed'); }
+}
+function loadState() {
+  try {
+    const raw = localStorage.getItem('sand-toy-save');
+    if (!raw) { showBrushToastMsg('No save found'); return; }
+    const data = JSON.parse(raw);
+    if (data.w !== W || data.h !== H) { showBrushToastMsg('Size mismatch'); return; }
+    grid.set(data.grid); colorGrid.set(data.color); velGrid.fill(0);
+    showBrushToastMsg('Loaded');
+  } catch (e) { showBrushToastMsg('Load failed'); }
+}
+document.querySelector('[data-action="save"]').addEventListener('click', saveState);
+document.querySelector('[data-action="load"]').addEventListener('click', loadState);
 document.getElementById('help-overlay').addEventListener('click', e => {
   if (e.target === e.currentTarget) toggleHelp();
 });
@@ -480,13 +504,16 @@ function togglePause() {
 pauseBtn.addEventListener('click', togglePause);
 
 let toastTimer;
-function showBrushToast() {
+function showBrushToastMsg(msg) {
   const el = document.getElementById('brush-toast');
-  const diameter = brushSize * 2 + 1;
-  el.textContent = `Brush ${diameter}×${diameter}`;
+  el.textContent = msg;
   el.classList.add('visible');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('visible'), 800);
+}
+function showBrushToast() {
+  const diameter = brushSize * 2 + 1;
+  showBrushToastMsg(`Brush ${diameter}×${diameter}`);
 }
 
 // --- Mouse / trackpad ---
@@ -602,6 +629,8 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && (e.key === 'Backspace' || e.key === 'Delete')) {
     e.preventDefault(); grid.fill(0); colorGrid.fill(0); velGrid.fill(0); return;
   }
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveState(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'l') { e.preventDefault(); loadState(); return; }
   if (e.key === '[') { brushSize = Math.max(1, brushSize - 1); showBrushToast(); return; }
   if (e.key === ']') { brushSize = Math.min(24, brushSize + 1); showBrushToast(); return; }
   if (e.key === '?' || e.key === '/') { toggleHelp(); return; }
