@@ -258,6 +258,7 @@
     <button data-action="pause" class="icon-btn" title="Pause (Space)">&#9646;&#9646;</button>
     <button data-action="clear" class="icon-btn danger" title="Clear (⌘⌫)">&#9249;</button>
     <button data-action="help" class="icon-btn" title="Help (?)">?</button>
+    <button data-action="mirror" class="icon-btn" title="Mirror (M)">&#9783;</button>
     <div class="sep"></div>
     <button data-action="save" class="icon-btn" title="Save (⌘S)">&#8595;</button>
     <button data-action="load" class="icon-btn" title="Load (⌘L)">&#8593;</button>
@@ -298,7 +299,7 @@
     <div class="help-grid">
       <span><kbd>Space</kbd> Pause</span><span><kbd>[ ]</kbd> Brush size</span>
       <span><kbd>&#8984;&#9003;</kbd> Clear</span><span>Right-click Erase</span>
-      <span><kbd>Alt</kbd>+click Pick</span>
+      <span><kbd>Alt</kbd>+click Pick</span><span><kbd>M</kbd> Mirror</span>
       <span><kbd>&#8984;Z</kbd> Undo</span><span><kbd>&#8984;S</kbd> Save</span>
       <span><kbd>&#8984;L</kbd> Load</span>
       <span><kbd>?</kbd> This help</span>
@@ -514,6 +515,12 @@ function loadState() {
     showBrushToastMsg('Loaded');
   } catch (e) { showBrushToastMsg('Load failed'); }
 }
+const mirrorBtn = document.querySelector('[data-action="mirror"]');
+mirrorBtn.addEventListener('click', () => {
+  mirrorMode = !mirrorMode;
+  mirrorBtn.classList.toggle('active', mirrorMode);
+  showBrushToastMsg(mirrorMode ? 'Mirror on' : 'Mirror off');
+});
 document.querySelector('[data-action="save"]').addEventListener('click', saveState);
 document.querySelector('[data-action="load"]').addEventListener('click', loadState);
 document.getElementById('help-overlay').addEventListener('click', e => {
@@ -619,8 +626,9 @@ window.addEventListener('touchmove', e => {
 
 window.addEventListener('touchend', () => { painting = false; mouseOnCanvas = false; prevPaintX = prevPaintY = -1; });
 
-function paintAt(px, py) {
-  const el = rightErasing ? EMPTY : currentElement;
+let mirrorMode = false;
+
+function paintCircle(px, py, el) {
   const bsq = brushSize * brushSize;
   for (let dy = -brushSize; dy <= brushSize; dy++)
     for (let dx = -brushSize; dx <= brushSize; dx++) {
@@ -634,6 +642,12 @@ function paintAt(px, py) {
         colorGrid[i] = (Math.random() * 5) | 0;
       }
     }
+}
+
+function paintAt(px, py) {
+  const el = rightErasing ? EMPTY : currentElement;
+  paintCircle(px, py, el);
+  if (mirrorMode) paintCircle(W - 1 - px, py, el);
 }
 
 function paintLine(x0, y0, x1, y1) {
@@ -666,6 +680,7 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'l') { e.preventDefault(); loadState(); return; }
   if (e.key === '[') { brushSize = Math.max(1, brushSize - 1); showBrushToast(); return; }
   if (e.key === ']') { brushSize = Math.min(24, brushSize + 1); showBrushToast(); return; }
+  if (e.key === 'm' || e.key === 'M') { mirrorBtn.click(); return; }
   if (e.key === '?' || e.key === '/') { toggleHelp(); return; }
   if (e.key === 'Escape') { const h = document.getElementById('help-overlay'); if (h.classList.contains('visible')) { h.classList.remove('visible'); return; } }
 });
