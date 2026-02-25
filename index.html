@@ -297,7 +297,8 @@
     <h3>Controls</h3>
     <div class="help-grid">
       <span><kbd>Space</kbd> Pause</span><span><kbd>[ ]</kbd> Brush size</span>
-      <span><kbd>&#8984;&#9003;</kbd> Clear</span><span><kbd>Alt</kbd>+click Pick</span>
+      <span><kbd>&#8984;&#9003;</kbd> Clear</span><span>Right-click Erase</span>
+      <span><kbd>Alt</kbd>+click Pick</span>
       <span><kbd>&#8984;S</kbd> Save</span><span><kbd>&#8984;L</kbd> Load</span>
       <span><kbd>?</kbd> This help</span>
     </div>
@@ -533,6 +534,8 @@ function screenToSim(clientX, clientY) {
   ];
 }
 
+let rightErasing = false;
+simCanvas.parentElement.addEventListener('contextmenu', e => e.preventDefault());
 simCanvas.parentElement.addEventListener('mousedown', e => {
   if (e.target.closest('.panel')) return;
   [mouseX, mouseY] = screenToSim(e.clientX, e.clientY);
@@ -544,6 +547,8 @@ simCanvas.parentElement.addEventListener('mousedown', e => {
     if (name) setActiveElement(name);
     return;
   }
+  // Right-click = erase
+  if (e.button === 2) { rightErasing = true; }
   painting = true;
   prevPaintX = mouseX; prevPaintY = mouseY;
   paintAt(mouseX, mouseY);
@@ -557,7 +562,7 @@ window.addEventListener('mousemove', e => {
   prevPaintX = mouseX; prevPaintY = mouseY;
 });
 
-window.addEventListener('mouseup', () => { painting = false; prevPaintX = prevPaintY = -1; });
+window.addEventListener('mouseup', () => { painting = false; rightErasing = false; prevPaintX = prevPaintY = -1; });
 document.addEventListener('mouseleave', () => { mouseOnCanvas = false; });
 document.addEventListener('mouseenter', () => { mouseOnCanvas = true; });
 
@@ -598,16 +603,17 @@ window.addEventListener('touchmove', e => {
 window.addEventListener('touchend', () => { painting = false; mouseOnCanvas = false; prevPaintX = prevPaintY = -1; });
 
 function paintAt(px, py) {
+  const el = rightErasing ? EMPTY : currentElement;
   const bsq = brushSize * brushSize;
   for (let dy = -brushSize; dy <= brushSize; dy++)
     for (let dx = -brushSize; dx <= brushSize; dx++) {
       if (dx * dx + dy * dy > bsq) continue;
-      if (Math.random() > 0.6 && currentElement !== EMPTY) continue;
+      if (Math.random() > 0.6 && el !== EMPTY) continue;
       const x = px + dx, y = py + dy;
       if (x < 0 || x >= W || y < 0 || y >= H) continue;
       const i = y * W + x;
-      if (currentElement === EMPTY || grid[i] === EMPTY) {
-        grid[i] = currentElement;
+      if (el === EMPTY || grid[i] === EMPTY) {
+        grid[i] = el;
         colorGrid[i] = (Math.random() * 5) | 0;
       }
     }
