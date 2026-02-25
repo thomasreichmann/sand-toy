@@ -223,6 +223,17 @@
     pointer-events: none;
   }
   .pause-badge.visible { opacity: 1; }
+
+  .fps-counter {
+    position: fixed;
+    bottom: 8px;
+    right: 10px;
+    z-index: 20;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255,255,255,0.25);
+    pointer-events: none;
+  }
 </style>
 </head>
 <body>
@@ -288,6 +299,7 @@
   </div>
 </div>
 <div class="brush-toast" id="brush-toast"></div>
+<div class="fps-counter" id="fps-counter"></div>
 <div class="pause-badge" id="pause-badge">paused</div>
 
 <script>
@@ -1286,6 +1298,8 @@ const SIM_DT = 1000 / SIM_HZ;  // ~16.67ms per tick
 const MAX_CATCHUP = 4;          // max sim steps per frame (prevent spiral of death)
 let simAccum = 0;
 let lastFrameTime = 0;
+let fpsFrames = 0, fpsLast = 0;
+const fpsEl = document.getElementById('fps-counter');
 
 function loop(now) {
   if (!lastFrameTime) lastFrameTime = now;
@@ -1293,7 +1307,6 @@ function loop(now) {
   lastFrameTime = now;
 
   if (!paused) {
-    // Clamp elapsed to prevent huge jumps (e.g. tab was backgrounded)
     simAccum += Math.min(elapsed, SIM_DT * MAX_CATCHUP);
     let steps = 0;
     while (simAccum >= SIM_DT && steps < MAX_CATCHUP) {
@@ -1305,6 +1318,14 @@ function loop(now) {
 
   render();
   renderCursor();
+
+  fpsFrames++;
+  if (now - fpsLast >= 500) {
+    fpsEl.textContent = (fpsFrames * 1000 / (now - fpsLast) + 0.5 | 0) + ' fps';
+    fpsFrames = 0;
+    fpsLast = now;
+  }
+
   requestAnimationFrame(loop);
 }
 
