@@ -467,8 +467,17 @@ document.querySelectorAll('.panel button[data-el]').forEach(btn => {
   btn.addEventListener('click', () => setActiveElement(btn.dataset.el));
 });
 
+let clearPending = false, clearTimer;
 document.querySelector('[data-action="clear"]').addEventListener('click', () => {
-  grid.fill(0); colorGrid.fill(0); velGrid.fill(0);
+  if (clearPending) {
+    grid.fill(0); colorGrid.fill(0); velGrid.fill(0);
+    clearPending = false; clearTimeout(clearTimer);
+    showBrushToastMsg('Cleared');
+  } else {
+    clearPending = true;
+    showBrushToastMsg('Click again to clear');
+    clearTimer = setTimeout(() => { clearPending = false; }, 2000);
+  }
 });
 document.querySelector('[data-action="help"]').addEventListener('click', toggleHelp);
 
