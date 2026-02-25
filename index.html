@@ -118,6 +118,67 @@
   .panel button.icon-btn.active { color: #fff; }
   .panel button.icon-btn.danger:hover { color: #e05040; }
 
+  .help-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  .help-overlay.visible { opacity: 1; pointer-events: auto; }
+
+  .help-box {
+    padding: 20px 28px;
+    border-radius: 12px;
+    background: rgba(30, 30, 28, 0.88);
+    -webkit-backdrop-filter: blur(40px) saturate(1.4);
+    backdrop-filter: blur(40px) saturate(1.4);
+    border: 0.5px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+    line-height: 1.6;
+    max-width: 420px;
+  }
+  .help-box h2 {
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.9);
+    margin: 0 0 10px;
+    letter-spacing: -0.01em;
+  }
+  .help-box h3 {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 10px 0 4px;
+  }
+  .help-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px 20px;
+  }
+  .help-grid span { white-space: nowrap; }
+  .help-grid kbd {
+    display: inline-block;
+    min-width: 16px;
+    text-align: center;
+    padding: 0 4px;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.08);
+    color: rgba(255,255,255,0.6);
+    font-family: inherit;
+    font-size: 11px;
+    margin-right: 6px;
+  }
+
   .brush-toast {
     position: fixed;
     bottom: 20px;
@@ -185,6 +246,7 @@
     <button data-el="erase" style="--el-color:#888" class="icon-btn" title="Eraser (E)">&#9003;</button>
     <button data-action="pause" class="icon-btn" title="Pause (Space)">&#9646;&#9646;</button>
     <button data-action="clear" class="icon-btn danger" title="Clear (⌘⌫)">&#9249;</button>
+    <button data-action="help" class="icon-btn" title="Help (?)">?</button>
   </div>
   <div class="panel-row">
     <button data-el="fire" style="--el-color:#e05530"><span class="swatch" style="background:#e05530"></span>Fire</button>
@@ -201,6 +263,30 @@
   </div>
 </div>
 
+<div class="help-overlay" id="help-overlay">
+  <div class="help-box">
+    <h2>Keyboard Shortcuts</h2>
+    <h3>Materials</h3>
+    <div class="help-grid">
+      <span><kbd>Q</kbd> Sand</span><span><kbd>W</kbd> Water</span>
+      <span><kbd>R</kbd> Stone</span><span><kbd>T</kbd> Wood</span>
+      <span><kbd>Y</kbd> Metal</span><span><kbd>U</kbd> Glass</span>
+      <span><kbd>I</kbd> Ice</span><span><kbd>O</kbd> Salt</span>
+      <span><kbd>P</kbd> Mud</span><span><kbd>Z</kbd> Dust</span>
+      <span><kbd>A</kbd> Fire</span><span><kbd>S</kbd> Lava</span>
+      <span><kbd>D</kbd> Ember</span><span><kbd>F</kbd> Powder</span>
+      <span><kbd>G</kbd> Oil</span><span><kbd>H</kbd> Smoke</span>
+      <span><kbd>J</kbd> Steam</span><span><kbd>K</kbd> Acid</span>
+      <span><kbd>L</kbd> Plant</span><span><kbd>X</kbd> Void</span>
+      <span><kbd>C</kbd> Clone</span><span><kbd>E</kbd> Eraser</span>
+    </div>
+    <h3>Controls</h3>
+    <div class="help-grid">
+      <span><kbd>Space</kbd> Pause</span><span><kbd>[ ]</kbd> Brush size</span>
+      <span><kbd>&#8984;&#9003;</kbd> Clear</span><span><kbd>?</kbd> This help</span>
+    </div>
+  </div>
+</div>
 <div class="brush-toast" id="brush-toast"></div>
 <div class="pause-badge" id="pause-badge">paused</div>
 
@@ -365,6 +451,10 @@ document.querySelectorAll('.panel button[data-el]').forEach(btn => {
 document.querySelector('[data-action="clear"]').addEventListener('click', () => {
   grid.fill(0); colorGrid.fill(0); velGrid.fill(0);
 });
+document.querySelector('[data-action="help"]').addEventListener('click', toggleHelp);
+document.getElementById('help-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) toggleHelp();
+});
 
 const pauseBtn = document.querySelector('[data-action="pause"]');
 function togglePause() {
@@ -492,7 +582,13 @@ document.addEventListener('keydown', e => {
   }
   if (e.key === '[') { brushSize = Math.max(1, brushSize - 1); showBrushToast(); return; }
   if (e.key === ']') { brushSize = Math.min(24, brushSize + 1); showBrushToast(); return; }
+  if (e.key === '?' || e.key === '/') { toggleHelp(); return; }
+  if (e.key === 'Escape') { const h = document.getElementById('help-overlay'); if (h.classList.contains('visible')) { h.classList.remove('visible'); return; } }
 });
+
+function toggleHelp() {
+  document.getElementById('help-overlay').classList.toggle('visible');
+}
 
 // --- Cursor ---
 let prevCursorX = -1, prevCursorY = -1, prevCursorBrush = -1, prevCursorPaint = false, prevCursorOn = false;
