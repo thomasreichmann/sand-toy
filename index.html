@@ -300,7 +300,8 @@
       <span><kbd>Space</kbd> Pause</span><span><kbd>N</kbd> Step (paused)</span>
       <span><kbd>[ ]</kbd> Brush size</span>
       <span><kbd>&#8984;&#9003;</kbd> Clear</span><span>Right-click Erase</span>
-      <span><kbd>Alt</kbd>+click Pick</span><span><kbd>M</kbd> Mirror</span>
+      <span><kbd>Alt</kbd>+click Pick</span><span><kbd>Shift</kbd>+click Replace</span>
+      <span><kbd>M</kbd> Mirror</span>
       <span><kbd>&#8984;Z</kbd> Undo</span><span><kbd>&#8984;S</kbd> Save</span>
       <span><kbd>&#8984;L</kbd> Load</span><span><kbd>&#8984;&#8679;S</kbd> Export PNG</span>
       <span><kbd>?</kbd> This help</span>
@@ -578,8 +579,9 @@ simCanvas.parentElement.addEventListener('mousedown', e => {
     if (name) setActiveElement(name);
     return;
   }
-  // Right-click = erase
+  // Right-click = erase, Shift = replace
   if (e.button === 2) { rightErasing = true; }
+  replaceMode = e.shiftKey;
   pushUndo();
   painting = true;
   prevPaintX = mouseX; prevPaintY = mouseY;
@@ -594,7 +596,7 @@ window.addEventListener('mousemove', e => {
   prevPaintX = mouseX; prevPaintY = mouseY;
 });
 
-window.addEventListener('mouseup', () => { painting = false; rightErasing = false; prevPaintX = prevPaintY = -1; });
+window.addEventListener('mouseup', () => { painting = false; rightErasing = false; replaceMode = false; prevPaintX = prevPaintY = -1; });
 document.addEventListener('mouseleave', () => { mouseOnCanvas = false; });
 document.addEventListener('mouseenter', () => { mouseOnCanvas = true; });
 
@@ -636,6 +638,7 @@ window.addEventListener('touchmove', e => {
 window.addEventListener('touchend', () => { painting = false; mouseOnCanvas = false; prevPaintX = prevPaintY = -1; });
 
 let mirrorMode = false;
+let replaceMode = false;
 
 function paintCircle(px, py, el) {
   const bsq = brushSize * brushSize;
@@ -646,9 +649,10 @@ function paintCircle(px, py, el) {
       const x = px + dx, y = py + dy;
       if (x < 0 || x >= W || y < 0 || y >= H) continue;
       const i = y * W + x;
-      if (el === EMPTY || grid[i] === EMPTY) {
+      if (el === EMPTY || grid[i] === EMPTY || replaceMode) {
         grid[i] = el;
         colorGrid[i] = (Math.random() * 5) | 0;
+        if (el === EMPTY) velGrid[i] = 0;
       }
     }
 }
