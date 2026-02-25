@@ -302,7 +302,7 @@
       <span><kbd>&#8984;&#9003;</kbd> Clear</span><span>Right-click Erase</span>
       <span><kbd>Alt</kbd>+click Pick</span><span><kbd>M</kbd> Mirror</span>
       <span><kbd>&#8984;Z</kbd> Undo</span><span><kbd>&#8984;S</kbd> Save</span>
-      <span><kbd>&#8984;L</kbd> Load</span>
+      <span><kbd>&#8984;L</kbd> Load</span><span><kbd>&#8984;&#8679;S</kbd> Export PNG</span>
       <span><kbd>?</kbd> This help</span>
     </div>
   </div>
@@ -522,6 +522,14 @@ mirrorBtn.addEventListener('click', () => {
   mirrorBtn.classList.toggle('active', mirrorMode);
   showBrushToastMsg(mirrorMode ? 'Mirror on' : 'Mirror off');
 });
+function exportPNG() {
+  render(); // ensure fresh
+  const link = document.createElement('a');
+  link.download = 'sand-toy.png';
+  link.href = simCanvas.toDataURL('image/png');
+  link.click();
+  showBrushToastMsg('Exported PNG');
+}
 document.querySelector('[data-action="save"]').addEventListener('click', saveState);
 document.querySelector('[data-action="load"]').addEventListener('click', loadState);
 document.getElementById('help-overlay').addEventListener('click', e => {
@@ -677,6 +685,7 @@ document.addEventListener('keydown', e => {
     e.preventDefault(); grid.fill(0); colorGrid.fill(0); velGrid.fill(0); return;
   }
   if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); popUndo(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') { e.preventDefault(); exportPNG(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveState(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'l') { e.preventDefault(); loadState(); return; }
   if (e.key === '[') { brushSize = Math.max(1, brushSize - 1); showBrushToast(); return; }
