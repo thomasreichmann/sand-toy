@@ -299,7 +299,8 @@
       <span><kbd>Space</kbd> Pause</span><span><kbd>[ ]</kbd> Brush size</span>
       <span><kbd>&#8984;&#9003;</kbd> Clear</span><span>Right-click Erase</span>
       <span><kbd>Alt</kbd>+click Pick</span>
-      <span><kbd>&#8984;S</kbd> Save</span><span><kbd>&#8984;L</kbd> Load</span>
+      <span><kbd>&#8984;Z</kbd> Undo</span><span><kbd>&#8984;S</kbd> Save</span>
+      <span><kbd>&#8984;L</kbd> Load</span>
       <span><kbd>?</kbd> This help</span>
     </div>
   </div>
@@ -437,6 +438,20 @@ let renderWaterDepth = new Uint8Array(0); // reused per frame, resized on resize
 resize();
 window.addEventListener('resize', resize);
 
+// --- Undo ---
+const UNDO_MAX = 10;
+const undoStack = [];
+function pushUndo() {
+  undoStack.push({ g: new Uint8Array(grid), c: new Uint8Array(colorGrid) });
+  if (undoStack.length > UNDO_MAX) undoStack.shift();
+}
+function popUndo() {
+  const snap = undoStack.pop();
+  if (!snap) { showBrushToastMsg('Nothing to undo'); return; }
+  grid.set(snap.g); colorGrid.set(snap.c); velGrid.fill(0);
+  showBrushToastMsg('Undo');
+}
+
 // --- Input state ---
 let currentElement = SAND;
 let brushSize = 3;
@@ -549,6 +564,7 @@ simCanvas.parentElement.addEventListener('mousedown', e => {
   }
   // Right-click = erase
   if (e.button === 2) { rightErasing = true; }
+  pushUndo();
   painting = true;
   prevPaintX = mouseX; prevPaintY = mouseY;
   paintAt(mouseX, mouseY);
@@ -582,6 +598,7 @@ window.addEventListener('wheel', e => {
 simCanvas.parentElement.addEventListener('touchstart', e => {
   if (e.target.closest('.panel')) return;
   e.preventDefault();
+  pushUndo();
   painting = true;
   const t = e.touches[0];
   [mouseX, mouseY] = screenToSim(t.clientX, t.clientY);
@@ -644,6 +661,7 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && (e.key === 'Backspace' || e.key === 'Delete')) {
     e.preventDefault(); grid.fill(0); colorGrid.fill(0); velGrid.fill(0); return;
   }
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); popUndo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveState(); return; }
   if ((e.metaKey || e.ctrlKey) && e.key === 'l') { e.preventDefault(); loadState(); return; }
   if (e.key === '[') { brushSize = Math.max(1, brushSize - 1); showBrushToast(); return; }
