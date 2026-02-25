@@ -258,6 +258,7 @@
     <button data-action="pause" class="icon-btn" title="Pause (Space)">&#9646;&#9646;</button>
     <button data-action="clear" class="icon-btn danger" title="Clear (⌘⌫)">&#9249;</button>
     <button data-action="help" class="icon-btn" title="Help (?)">?</button>
+    <button data-action="thermal" class="icon-btn" title="Thermal (V)">&#9832;</button>
     <button data-action="mirror" class="icon-btn" title="Mirror (M)">&#9783;</button>
     <div class="sep"></div>
     <button data-action="save" class="icon-btn" title="Save (⌘S)">&#8595;</button>
@@ -301,7 +302,7 @@
       <span><kbd>[ ]</kbd> Brush size</span>
       <span><kbd>&#8984;&#9003;</kbd> Clear</span><span>Right-click Erase</span>
       <span><kbd>Alt</kbd>+click Pick</span><span><kbd>Shift</kbd>+click Replace</span>
-      <span><kbd>M</kbd> Mirror</span>
+      <span><kbd>M</kbd> Mirror</span><span><kbd>V</kbd> Thermal view</span>
       <span><kbd>&#8984;Z</kbd> Undo</span><span><kbd>&#8984;S</kbd> Save</span>
       <span><kbd>&#8984;L</kbd> Load</span><span><kbd>&#8984;&#8679;S</kbd> Export PNG</span>
       <span><kbd>?</kbd> This help</span>
@@ -320,7 +321,7 @@ const cursorCtx = cursorCanvas.getContext('2d');
 
 const SCALE = 3;
 let W, H;
-let grid, nextGrid, colorGrid, nextColor, velGrid, nextVel;
+let grid, nextGrid, colorGrid, nextColor, velGrid, nextVel, tempGrid, nextTemp;
 let prevW, prevH;
 
 // Element IDs
@@ -413,6 +414,7 @@ function resize() {
   const newGrid = new Uint8Array(sz);
   const newColorGrid = new Uint8Array(sz);
   const newVelGrid = new Uint8Array(sz);
+  const newTempGrid = new Int16Array(sz); // temperature: -500 to 2000 (×10 for precision)
   if (grid) {
     const copyW = Math.min(newW, prevW || newW);
     const copyH = Math.min(newH, prevH || newH);
@@ -422,6 +424,7 @@ function resize() {
         newGrid[di] = grid[si];
         newColorGrid[di] = colorGrid[si];
         newVelGrid[di] = velGrid ? velGrid[si] : 0;
+        newTempGrid[di] = tempGrid ? tempGrid[si] : 0;
       }
   }
   prevW = W = newW;
@@ -429,9 +432,11 @@ function resize() {
   grid = newGrid;
   colorGrid = newColorGrid;
   velGrid = newVelGrid;
+  tempGrid = newTempGrid;
   nextGrid = new Uint8Array(sz);
   nextColor = new Uint8Array(sz);
   nextVel = new Uint8Array(sz);
+  nextTemp = new Int16Array(sz);
   imgData = simCtx.createImageData(W, H);
   renderWaterDepth = new Uint8Array(W);
 }
@@ -445,13 +450,13 @@ window.addEventListener('resize', resize);
 const UNDO_MAX = 10;
 const undoStack = [];
 function pushUndo() {
-  undoStack.push({ g: new Uint8Array(grid), c: new Uint8Array(colorGrid) });
+  undoStack.push({ g: new Uint8Array(grid), c: new Uint8Array(colorGrid), t: new Int16Array(tempGrid) });
   if (undoStack.length > UNDO_MAX) undoStack.shift();
 }
 function popUndo() {
   const snap = undoStack.pop();
   if (!snap) { showBrushToastMsg('Nothing to undo'); return; }
-  grid.set(snap.g); colorGrid.set(snap.c); velGrid.fill(0);
+  grid.set(snap.g); colorGrid.set(snap.c); velGrid.fill(0); tempGrid.set(snap.t);
   showBrushToastMsg('Undo');
 }
 
@@ -489,7 +494,7 @@ document.querySelectorAll('.panel button[data-el]').forEach(btn => {
 let clearPending = false, clearTimer;
 document.querySelector('[data-action="clear"]').addEventListener('click', () => {
   if (clearPending) {
-    grid.fill(0); colorGrid.fill(0); velGrid.fill(0);
+    grid.fill(0); colorGrid.fill(0); velGrid.fill(0); tempGrid.fill(0);
     clearPending = false; clearTimeout(clearTimer);
     showBrushToastMsg('Cleared');
   } else {
@@ -502,7 +507,7 @@ document.querySelector('[data-action="help"]').addEventListener('click', toggleH
 
 function saveState() {
   try {
-    const data = { w: W, h: H, grid: Array.from(grid), color: Array.from(colorGrid) };
+    const data = { w: W, h: H, grid: Array.from(grid), color: Array.from(colorGrid), temp: Array.from(tempGrid) };
     localStorage.setItem('sand-toy-save', JSON.stringify(data));
     showBrushToastMsg('Saved');
   } catch (e) { showBrushToastMsg('Save failed'); }
@@ -514,9 +519,16 @@ function loadState() {
     const data = JSON.parse(raw);
     if (data.w !== W || data.h !== H) { showBrushToastMsg('Size mismatch'); return; }
     grid.set(data.grid); colorGrid.set(data.color); velGrid.fill(0);
+    if (data.temp) tempGrid.set(data.temp); else tempGrid.fill(0);
     showBrushToastMsg('Loaded');
   } catch (e) { showBrushToastMsg('Load failed'); }
 }
+const thermalBtn = document.querySelector('[data-action="thermal"]');
+thermalBtn.addEventListener('click', () => {
+  thermalView = !thermalView;
+  thermalBtn.classList.toggle('active', thermalView);
+  showBrushToastMsg(thermalView ? 'Thermal view' : 'Normal view');
+});
 const mirrorBtn = document.querySelector('[data-action="mirror"]');
 mirrorBtn.addEventListener('click', () => {
   mirrorMode = !mirrorMode;
@@ -652,6 +664,7 @@ function paintCircle(px, py, el) {
       if (el === EMPTY || grid[i] === EMPTY || replaceMode) {
         grid[i] = el;
         colorGrid[i] = (Math.random() * 5) | 0;
+        tempGrid[i] = DEFAULT_TEMP[el];
         if (el === EMPTY) velGrid[i] = 0;
       }
     }
@@ -686,7 +699,7 @@ document.addEventListener('keydown', e => {
   if (e.key === 'e' || e.key === 'E') { setActiveElement('erase'); return; }
   if (e.key === ' ') { e.preventDefault(); togglePause(); return; }
   if ((e.metaKey || e.ctrlKey) && (e.key === 'Backspace' || e.key === 'Delete')) {
-    e.preventDefault(); grid.fill(0); colorGrid.fill(0); velGrid.fill(0); return;
+    e.preventDefault(); grid.fill(0); colorGrid.fill(0); velGrid.fill(0); tempGrid.fill(0); return;
   }
   if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); popUndo(); return; }
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 's') { e.preventDefault(); exportPNG(); return; }
@@ -694,6 +707,7 @@ document.addEventListener('keydown', e => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'l') { e.preventDefault(); loadState(); return; }
   if (e.key === '[') { brushSize = Math.max(1, brushSize - 1); showBrushToast(); return; }
   if (e.key === ']') { brushSize = Math.min(24, brushSize + 1); showBrushToast(); return; }
+  if (e.key === 'v' || e.key === 'V') { thermalBtn.click(); return; }
   if (e.key === 'n' || e.key === 'N') { if (paused) { simulate(); showBrushToastMsg('Step'); } return; }
   if (e.key === 'm' || e.key === 'M') { mirrorBtn.click(); return; }
   if (e.key === '?' || e.key === '/') { toggleHelp(); return; }
@@ -784,17 +798,53 @@ ACCEL[STEAM]=6;      MAX_VEL[STEAM]=20;     DRAG[STEAM]=0;
 ACCEL[SMOKE]=4;      MAX_VEL[SMOKE]=14;     DRAG[SMOKE]=0;
 ACCEL[FIRE]=7;       MAX_VEL[FIRE]=18;      DRAG[FIRE]=0;
 
+// --- Temperature system ---
+// Temperature stored as Int16 in tenths of degrees C (200 = 20.0°C)
+// Conductivity: how fast heat transfers (0-255, higher = faster)
+// Default temp: what temp a freshly spawned particle starts at
+const CONDUCTIVITY = new Uint8Array(NUM_ELEMENTS);
+const DEFAULT_TEMP = new Int16Array(NUM_ELEMENTS); // in tenths °C
+const EMIT_HEAT = new Int16Array(NUM_ELEMENTS);    // per-tick heat emission (added to self)
+
+DEFAULT_TEMP[SAND]=200; DEFAULT_TEMP[WATER]=200; DEFAULT_TEMP[STONE]=200;
+DEFAULT_TEMP[WOOD]=200; DEFAULT_TEMP[METAL]=200; DEFAULT_TEMP[GLASS]=200;
+DEFAULT_TEMP[ICE]=-50;  DEFAULT_TEMP[SALT]=200;  DEFAULT_TEMP[MUD]=200;
+DEFAULT_TEMP[DUST]=200; DEFAULT_TEMP[OIL]=200;   DEFAULT_TEMP[PLANT]=200;
+DEFAULT_TEMP[FIRE]=8000; DEFAULT_TEMP[LAVA]=12000; DEFAULT_TEMP[EMBER]=6000;
+DEFAULT_TEMP[STEAM]=1050; DEFAULT_TEMP[SMOKE]=3000; DEFAULT_TEMP[ACID]=200;
+DEFAULT_TEMP[GUNPOWDER]=200;
+
+// Conductivity (0-255). Metal is very conductive, stone/glass moderate, wood/plant low
+CONDUCTIVITY[SAND]=30;  CONDUCTIVITY[WATER]=60;  CONDUCTIVITY[STONE]=40;
+CONDUCTIVITY[WOOD]=8;   CONDUCTIVITY[METAL]=200; CONDUCTIVITY[GLASS]=25;
+CONDUCTIVITY[ICE]=80;   CONDUCTIVITY[SALT]=35;   CONDUCTIVITY[MUD]=20;
+CONDUCTIVITY[DUST]=15;  CONDUCTIVITY[OIL]=20;    CONDUCTIVITY[PLANT]=8;
+CONDUCTIVITY[FIRE]=100; CONDUCTIVITY[LAVA]=50;   CONDUCTIVITY[EMBER]=80;
+CONDUCTIVITY[STEAM]=40; CONDUCTIVITY[SMOKE]=10;  CONDUCTIVITY[ACID]=50;
+CONDUCTIVITY[GUNPOWDER]=15;
+
+// Heat sources constantly push toward their default temp
+EMIT_HEAT[FIRE]=200;  EMIT_HEAT[LAVA]=100;  EMIT_HEAT[EMBER]=120;
+
+// Phase change thresholds (in tenths °C)
+const WATER_FREEZE = 0;     // water → ice below 0°C
+const ICE_MELT = 10;        // ice → water above 1°C
+const WATER_BOIL = 1000;    // water → steam above 100°C
+const STEAM_CONDENSE = 950;  // steam → water below 95°C
+const LAVA_COOL = 5000;     // lava → stone below 500°C
+const WOOD_IGNITE = 3000;   // wood catches fire above 300°C
+const OIL_IGNITE = 2000;    // oil catches fire above 200°C
+const GUNPOWDER_IGNITE = 1500; // gunpowder ignites above 150°C
+
 // Impact spread: lateral cells a liquid tries on landing, scaled by velocity
 const SPREAD = new Uint8Array(NUM_ELEMENTS);
 SPREAD[WATER]=3; SPREAD[OIL]=2; SPREAD[ACID]=2; SPREAD[LAVA]=1;
 
 // Falling helper — returns final y or -1 if blocked
-function fallMulti(ng, nc, nv, x, y, w, h, el, elC, curVel, canDisplace) {
-  // Apply acceleration
+function fallMulti(ng, nc, nv, nt, x, y, w, h, el, elC, curVel, canDisplace) {
   const newVel = Math.min(curVel + ACCEL[el], MAX_VEL[el]);
-  const cells = (newVel / VEL_UNIT) | 0; // convert to cell distance
+  const cells = (newVel / VEL_UNIT) | 0;
   if (cells < 1) {
-    // Sub-cell: accumulate velocity but don't move yet
     nv[y * w + x] = newVel;
     return -1;
   }
@@ -814,16 +864,16 @@ function fallMulti(ng, nc, nv, x, y, w, h, el, elC, curVel, canDisplace) {
   if (finalY !== y) {
     const fi = finalY * w + x;
     const oi = y * w + x;
-    const dstEl = ng[fi], dstC = nc[fi], dstV = nv[fi];
-    ng[fi] = el; nc[fi] = elC; nv[fi] = newVel;
-    ng[oi] = dstEl; nc[oi] = dstC; nv[oi] = dstV;
+    const dstEl = ng[fi], dstC = nc[fi], dstV = nv[fi], dstT = nt[fi];
+    ng[fi] = el; nc[fi] = elC; nv[fi] = newVel; nt[fi] = nt[oi];
+    ng[oi] = dstEl; nc[oi] = dstC; nv[oi] = dstV; nt[oi] = dstT;
     return finalY;
   }
   return -1;
 }
 
 // Rising helper
-function riseMulti(ng, nc, nv, x, y, w, h, el, elC, curVel) {
+function riseMulti(ng, nc, nv, nt, x, y, w, h, el, elC, curVel) {
   const newVel = Math.min(curVel + ACCEL[el], MAX_VEL[el]);
   const cells = (newVel / VEL_UNIT) | 0;
   if (cells < 1) {
@@ -844,8 +894,8 @@ function riseMulti(ng, nc, nv, x, y, w, h, el, elC, curVel) {
   if (finalY !== y) {
     const fi = finalY * w + x;
     const oi = y * w + x;
-    ng[fi] = el; nc[fi] = elC; nv[fi] = newVel;
-    ng[oi] = EMPTY; nv[oi] = 0;
+    ng[fi] = el; nc[fi] = elC; nv[fi] = newVel; nt[fi] = nt[oi];
+    ng[oi] = EMPTY; nv[oi] = 0; nt[oi] = 0;
     return finalY;
   }
   return -1;
@@ -853,11 +903,10 @@ function riseMulti(ng, nc, nv, x, y, w, h, el, elC, curVel) {
 
 // When a falling particle is blocked, try to spread laterally (for liquids)
 // or slide diagonally (for granulars). Preserves partial velocity.
-function handleLanding(ng, nc, nv, x, y, w, h, el, elC, curVel, belowRow, row, canDisplace, isLiquid) {
+function handleLanding(ng, nc, nv, nt, x, y, w, h, el, elC, curVel, belowRow, row, canDisplace, isLiquid) {
   const i = y * w + x;
 
   if (isLiquid && curVel > VEL_UNIT * 2) {
-    // Lateral splash — spread proportional to impact velocity
     const spreadDist = Math.min(((curVel / VEL_UNIT) * SPREAD[el] / 6) | 0, 8);
     if (spreadDist > 0) {
       const side = Math.random() < 0.5 ? -1 : 1;
@@ -866,45 +915,40 @@ function handleLanding(ng, nc, nv, x, y, w, h, el, elC, curVel, belowRow, row, c
         if (sx < 0 || sx >= w) break;
         const si = row + sx;
         if (ng[si] !== EMPTY) break;
-        // Move the particle sideways
-        ng[si] = el; nc[si] = elC; nv[si] = 0;
-        ng[i] = EMPTY; nv[i] = 0;
+        ng[si] = el; nc[si] = elC; nv[si] = 0; nt[si] = nt[i];
+        ng[i] = EMPTY; nv[i] = 0; nt[i] = 0;
         return true;
       }
     }
   }
 
-  // Diagonal slide — try below-left/right
   const side = Math.random() < 0.5 ? -1 : 1;
   const sx = x + side;
   if (y + 1 < h && sx >= 0 && sx < w) {
     const si = belowRow + sx;
     const b = ng[si];
     if (b === EMPTY || canDisplace(b)) {
-      const dstEl = ng[si], dstC = nc[si], dstV = nv[si];
-      // Retain partial velocity on slide
+      const dstEl = ng[si], dstC = nc[si], dstV = nv[si], dstT = nt[si];
       const keptVel = (curVel * DRAG[el] / 255) | 0;
-      ng[si] = el; nc[si] = elC; nv[si] = keptVel;
-      ng[i] = dstEl; nc[i] = dstC; nv[i] = dstV;
+      ng[si] = el; nc[si] = elC; nv[si] = keptVel; nt[si] = nt[i];
+      ng[i] = dstEl; nc[i] = dstC; nv[i] = dstV; nt[i] = dstT;
       return true;
     }
   }
 
-  // Fully stopped
   nv[i] = 0;
 
-  // Liquids also try to flow sideways
   if (isLiquid) {
     const sx1 = x + (Math.random() < 0.5 ? -1 : 1);
     const sx2 = x - (sx1 - x);
     if (sx1 >= 0 && sx1 < w && ng[row + sx1] === EMPTY) {
-      ng[row + sx1] = el; nc[row + sx1] = elC; nv[row + sx1] = 0;
-      ng[i] = EMPTY;
+      ng[row + sx1] = el; nc[row + sx1] = elC; nv[row + sx1] = 0; nt[row + sx1] = nt[i];
+      ng[i] = EMPTY; nt[i] = 0;
       return true;
     }
     if (sx2 >= 0 && sx2 < w && ng[row + sx2] === EMPTY) {
-      ng[row + sx2] = el; nc[row + sx2] = elC; nv[row + sx2] = 0;
-      ng[i] = EMPTY;
+      ng[row + sx2] = el; nc[row + sx2] = elC; nv[row + sx2] = 0; nt[row + sx2] = nt[i];
+      ng[i] = EMPTY; nt[i] = 0;
       return true;
     }
   }
@@ -919,10 +963,11 @@ const _canDisplaceNone = () => false;
 
 function simulate() {
   const w = W, h = H;
-  const ng = nextGrid, nc = nextColor, nv = nextVel;
+  const ng = nextGrid, nc = nextColor, nv = nextVel, nt = nextTemp;
   ng.set(grid);
   nc.set(colorGrid);
   nv.set(velGrid);
+  nt.set(tempGrid);
   tick++;
   const dir = tick & 1;
 
@@ -936,14 +981,14 @@ function simulate() {
 
       // --- SAND ---
       if (el === SAND) {
-        if (fallMulti(ng, nc, nv, x, y, w, h, SAND, nc[i], nv[i], _canDisplaceWaterOil) === -1) {
-          handleLanding(ng, nc, nv, x, y, w, h, SAND, nc[i], nv[i], belowRow, row, _canDisplaceWaterOil, false);
+        if (fallMulti(ng, nc, nv, nt, x, y, w, h, SAND, nc[i], nv[i], _canDisplaceWaterOil) === -1) {
+          handleLanding(ng, nc, nv, nt, x, y, w, h, SAND, nc[i], nv[i], belowRow, row, _canDisplaceWaterOil, false);
         }
       }
 
       // --- WATER ---
       else if (el === WATER) {
-        const fallResult = fallMulti(ng, nc, nv, x, y, w, h, WATER, nc[i], nv[i], _canDisplaceOil);
+        const fallResult = fallMulti(ng, nc, nv, nt, x, y, w, h, WATER, nc[i], nv[i], _canDisplaceOil);
         if (fallResult !== -1) {
           // Splash on impact: if fell far, set bright color variant
           const dist = fallResult - y;
@@ -951,7 +996,7 @@ function simulate() {
             nc[fallResult * w + x] = 0; // brightest variant
           }
         } else {
-          let moved = handleLanding(ng, nc, nv, x, y, w, h, WATER, nc[i], nv[i], belowRow, row, _canDisplaceOil, true);
+          let moved = handleLanding(ng, nc, nv, nt, x, y, w, h, WATER, nc[i], nv[i], belowRow, row, _canDisplaceOil, true);
 
           // Multi-cell lateral flow — scan up to 4 cells in each direction through EMPTY
           if (!moved && ng[i] === WATER) {
@@ -966,8 +1011,8 @@ function simulate() {
               }
               if (farthest !== -1) {
                 const si = row + farthest;
-                ng[si] = WATER; nc[si] = nc[i]; nv[si] = 0;
-                ng[i] = EMPTY; nv[i] = 0;
+                ng[si] = WATER; nc[si] = nc[i]; nv[si] = 0; nt[si] = nt[i];
+                ng[i] = EMPTY; nv[i] = 0; nt[i] = 0;
                 moved = true;
               }
             }
@@ -1013,12 +1058,12 @@ function simulate() {
             if (bestSx !== -1) {
               const si = row + bestSx;
               if (bestDown) {
-                // Swap colors to flow through
-                const tmpC = nc[si];
+                const tmpC = nc[si], tmpT = nt[si];
                 nc[si] = nc[i]; nc[i] = tmpC;
+                nt[si] = nt[i]; nt[i] = tmpT;
               } else {
-                ng[si] = WATER; nc[si] = nc[i]; nv[si] = 0;
-                ng[i] = EMPTY; nv[i] = 0;
+                ng[si] = WATER; nc[si] = nc[i]; nv[si] = 0; nt[si] = nt[i];
+                ng[i] = EMPTY; nv[i] = 0; nt[i] = 0;
               }
               moved = true;
             }
@@ -1046,8 +1091,8 @@ function simulate() {
                 if (y > 0 && ng[aboveRow + nx] === EMPTY) {
                   // Shorter column found — move on top of it
                   const dest = aboveRow + nx;
-                  ng[dest] = WATER; nc[dest] = nc[i]; nv[dest] = 0;
-                  ng[i] = EMPTY; nv[i] = 0;
+                  ng[dest] = WATER; nc[dest] = nc[i]; nv[dest] = 0; nt[dest] = nt[i];
+                  ng[i] = EMPTY; nv[i] = 0; nt[i] = 0;
                   moved = true;
                   break;
                 }
@@ -1059,8 +1104,8 @@ function simulate() {
 
       // --- OIL ---
       else if (el === OIL) {
-        if (fallMulti(ng, nc, nv, x, y, w, h, OIL, nc[i], nv[i], _canDisplaceNone) === -1) {
-          handleLanding(ng, nc, nv, x, y, w, h, OIL, nc[i], nv[i], belowRow, row, _canDisplaceNone, true);
+        if (fallMulti(ng, nc, nv, nt, x, y, w, h, OIL, nc[i], nv[i], _canDisplaceNone) === -1) {
+          handleLanding(ng, nc, nv, nt, x, y, w, h, OIL, nc[i], nv[i], belowRow, row, _canDisplaceNone, true);
         }
       }
 
@@ -1079,23 +1124,23 @@ function simulate() {
           }
         }
         if (!dissolved) {
-          if (fallMulti(ng, nc, nv, x, y, w, h, SALT, nc[i], nv[i], _canDisplaceWaterOil) === -1) {
-            handleLanding(ng, nc, nv, x, y, w, h, SALT, nc[i], nv[i], belowRow, row, _canDisplaceWaterOil, false);
+          if (fallMulti(ng, nc, nv, nt, x, y, w, h, SALT, nc[i], nv[i], _canDisplaceWaterOil) === -1) {
+            handleLanding(ng, nc, nv, nt, x, y, w, h, SALT, nc[i], nv[i], belowRow, row, _canDisplaceWaterOil, false);
           }
         }
       }
 
       // --- DUST ---
       else if (el === DUST) {
-        if (fallMulti(ng, nc, nv, x, y, w, h, DUST, nc[i], nv[i], _canDisplaceNone) === -1) {
-          handleLanding(ng, nc, nv, x, y, w, h, DUST, nc[i], nv[i], belowRow, row, _canDisplaceNone, false);
+        if (fallMulti(ng, nc, nv, nt, x, y, w, h, DUST, nc[i], nv[i], _canDisplaceNone) === -1) {
+          handleLanding(ng, nc, nv, nt, x, y, w, h, DUST, nc[i], nv[i], belowRow, row, _canDisplaceNone, false);
         }
       }
 
       // --- MUD ---
       else if (el === MUD) {
-        if (fallMulti(ng, nc, nv, x, y, w, h, MUD, nc[i], nv[i], _canDisplaceNone) === -1) {
-          handleLanding(ng, nc, nv, x, y, w, h, MUD, nc[i], nv[i], belowRow, row, _canDisplaceNone, false);
+        if (fallMulti(ng, nc, nv, nt, x, y, w, h, MUD, nc[i], nv[i], _canDisplaceNone) === -1) {
+          handleLanding(ng, nc, nv, nt, x, y, w, h, MUD, nc[i], nv[i], belowRow, row, _canDisplaceNone, false);
         }
       }
 
@@ -1122,22 +1167,22 @@ function simulate() {
               if (nx2 < 0 || nx2 >= w) continue;
               const ni = ny2 * w + nx2;
               if (ng[ni] !== STONE && ng[ni] !== METAL && ng[ni] !== GLASS && ng[ni] !== VOID && ng[ni] !== CLONE) {
-                ng[ni] = Math.random() < 0.5 ? FIRE : EMPTY;
-                nc[ni] = (Math.random() * 5) | 0;
-                nv[ni] = 0;
+                const ne = Math.random() < 0.5 ? FIRE : EMPTY;
+                ng[ni] = ne; nc[ni] = (Math.random() * 5) | 0;
+                nv[ni] = 0; nt[ni] = DEFAULT_TEMP[ne];
               }
             }
           }
         } else {
-          if (fallMulti(ng, nc, nv, x, y, w, h, GUNPOWDER, nc[i], nv[i], _canDisplaceWater) === -1) {
-            handleLanding(ng, nc, nv, x, y, w, h, GUNPOWDER, nc[i], nv[i], belowRow, row, _canDisplaceWater, false);
+          if (fallMulti(ng, nc, nv, nt, x, y, w, h, GUNPOWDER, nc[i], nv[i], _canDisplaceWater) === -1) {
+            handleLanding(ng, nc, nv, nt, x, y, w, h, GUNPOWDER, nc[i], nv[i], belowRow, row, _canDisplaceWater, false);
           }
         }
       }
 
       // --- EMBER ---
       else if (el === EMBER) {
-        if (Math.random() < 0.015) { ng[i] = Math.random() < 0.3 ? SMOKE : EMPTY; nc[i] = (Math.random()*5)|0; nv[i] = 0; continue; }
+        if (Math.random() < 0.015) { const ne = Math.random() < 0.3 ? SMOKE : EMPTY; ng[i] = ne; nc[i] = (Math.random()*5)|0; nv[i] = 0; nt[i] = ne === EMPTY ? 0 : nt[i]; continue; }
         for (let dy2 = -1; dy2 <= 1; dy2++) {
           const ny2 = y + dy2;
           if (ny2 < 0 || ny2 >= h) continue;
@@ -1146,18 +1191,18 @@ function simulate() {
             if (nx2 < 0 || nx2 >= w) continue;
             const ni = ny2 * w + nx2;
             if (IS_FLAMMABLE[ng[ni]] && Math.random() < 0.06) {
-              ng[ni] = FIRE; nc[ni] = (Math.random()*5)|0; nv[ni] = 0;
+              ng[ni] = FIRE; nc[ni] = (Math.random()*5)|0; nv[ni] = 0; nt[ni] = DEFAULT_TEMP[FIRE];
             }
           }
         }
-        if (fallMulti(ng, nc, nv, x, y, w, h, EMBER, nc[i], nv[i], _canDisplaceNone) === -1) {
-          handleLanding(ng, nc, nv, x, y, w, h, EMBER, nc[i], nv[i], belowRow, row, _canDisplaceNone, false);
+        if (fallMulti(ng, nc, nv, nt, x, y, w, h, EMBER, nc[i], nv[i], _canDisplaceNone) === -1) {
+          handleLanding(ng, nc, nv, nt, x, y, w, h, EMBER, nc[i], nv[i], belowRow, row, _canDisplaceNone, false);
         }
       }
 
       // --- FIRE ---
       else if (el === FIRE) {
-        if (Math.random() < 0.08) { ng[i] = Math.random() < 0.4 ? SMOKE : EMPTY; nc[i] = (Math.random()*5)|0; nv[i] = 0; continue; }
+        if (Math.random() < 0.08) { const ne = Math.random() < 0.4 ? SMOKE : EMPTY; ng[i] = ne; nc[i] = (Math.random()*5)|0; nv[i] = 0; nt[i] = ne === EMPTY ? 0 : nt[i]; continue; }
         for (let dy2 = -1; dy2 <= 1; dy2++) {
           const ny2 = y + dy2;
           if (ny2 < 0 || ny2 >= h) continue;
@@ -1169,20 +1214,20 @@ function simulate() {
             const n = ng[ni];
             if (IS_FLAMMABLE[n]) {
               if (Math.random() < (n === OIL ? 0.15 : n === GUNPOWDER ? 0.3 : 0.04)) {
-                ng[ni] = FIRE; nc[ni] = (Math.random() * 5) | 0; nv[ni] = 0;
+                ng[ni] = FIRE; nc[ni] = (Math.random() * 5) | 0; nv[ni] = 0; nt[ni] = DEFAULT_TEMP[FIRE];
               }
             }
-            if (n === WATER) { ng[i] = STEAM; nc[i]=(Math.random()*5)|0; nv[i]=0; ng[ni] = EMPTY; nv[ni]=0; }
-            if (n === ICE) { ng[ni] = WATER; nc[ni]=(Math.random()*5)|0; nv[ni]=0; }
-            if (n === SAND && Math.random() < 0.002) { ng[ni] = GLASS; nc[ni]=(Math.random()*5)|0; nv[ni]=0; }
+            if (n === WATER) { ng[i] = STEAM; nc[i]=(Math.random()*5)|0; nv[i]=0; nt[i]=DEFAULT_TEMP[STEAM]; ng[ni] = EMPTY; nv[ni]=0; nt[ni]=0; }
+            if (n === ICE) { ng[ni] = WATER; nc[ni]=(Math.random()*5)|0; nv[ni]=0; nt[ni]=DEFAULT_TEMP[WATER]; }
+            if (n === SAND && Math.random() < 0.002) { ng[ni] = GLASS; nc[ni]=(Math.random()*5)|0; nv[ni]=0; nt[ni]=nt[i]; }
           }
         }
-        if (riseMulti(ng, nc, nv, x, y, w, h, FIRE, nc[i], nv[i]) === -1 && y > 0) {
+        if (riseMulti(ng, nc, nv, nt, x, y, w, h, FIRE, nc[i], nv[i]) === -1 && y > 0) {
           const side = (Math.random() * 3 | 0) - 1;
           const nx = x + side;
           if (nx >= 0 && nx < w && ng[aboveRow + nx] === EMPTY) {
-            ng[aboveRow + nx] = FIRE; nc[aboveRow + nx] = nc[i]; nv[aboveRow + nx] = nv[i];
-            ng[i] = EMPTY; nv[i] = 0;
+            ng[aboveRow + nx] = FIRE; nc[aboveRow + nx] = nc[i]; nv[aboveRow + nx] = nv[i]; nt[aboveRow + nx] = nt[i];
+            ng[i] = EMPTY; nv[i] = 0; nt[i] = 0;
           }
         }
       }
@@ -1198,68 +1243,54 @@ function simulate() {
             const ni = ny2 * w + nx2;
             const n = ng[ni];
             if (n === WATER) {
-              ng[i] = STONE; nc[i]=(Math.random()*5)|0; nv[i]=0;
-              ng[ni] = STEAM; nc[ni]=(Math.random()*5)|0; nv[ni]=0;
+              ng[i] = STONE; nc[i]=(Math.random()*5)|0; nv[i]=0; nt[i]=LAVA_COOL;
+              ng[ni] = STEAM; nc[ni]=(Math.random()*5)|0; nv[ni]=0; nt[ni]=DEFAULT_TEMP[STEAM];
             }
-            if (n === ICE) { ng[ni] = WATER; nc[ni]=(Math.random()*5)|0; nv[ni]=0; }
-            if (IS_FLAMMABLE[n] && Math.random() < 0.08) { ng[ni] = FIRE; nc[ni]=(Math.random()*5)|0; nv[ni]=0; }
-            if (n === SAND && Math.random() < 0.01) { ng[ni] = GLASS; nc[ni]=(Math.random()*5)|0; nv[ni]=0; }
-            if (n === METAL && Math.random() < 0.003) { ng[ni] = LAVA; nc[ni]=(Math.random()*5)|0; nv[ni]=0; }
+            if (n === ICE) { ng[ni] = WATER; nc[ni]=(Math.random()*5)|0; nv[ni]=0; nt[ni]=DEFAULT_TEMP[WATER]; }
+            if (IS_FLAMMABLE[n] && Math.random() < 0.08) { ng[ni] = FIRE; nc[ni]=(Math.random()*5)|0; nv[ni]=0; nt[ni]=DEFAULT_TEMP[FIRE]; }
+            if (n === SAND && Math.random() < 0.01) { ng[ni] = GLASS; nc[ni]=(Math.random()*5)|0; nv[ni]=0; nt[ni]=nt[i]; }
+            if (n === METAL && Math.random() < 0.003) { ng[ni] = LAVA; nc[ni]=(Math.random()*5)|0; nv[ni]=0; nt[ni]=DEFAULT_TEMP[LAVA]; }
           }
         }
         if (ng[i] !== LAVA) continue;
-        if (fallMulti(ng, nc, nv, x, y, w, h, LAVA, nc[i], nv[i], _canDisplaceNone) === -1) {
-          handleLanding(ng, nc, nv, x, y, w, h, LAVA, nc[i], nv[i], belowRow, row, _canDisplaceNone, true);
+        if (fallMulti(ng, nc, nv, nt, x, y, w, h, LAVA, nc[i], nv[i], _canDisplaceNone) === -1) {
+          handleLanding(ng, nc, nv, nt, x, y, w, h, LAVA, nc[i], nv[i], belowRow, row, _canDisplaceNone, true);
         }
       }
 
       // --- STEAM ---
       else if (el === STEAM) {
-        if (Math.random() < 0.005) { ng[i] = WATER; nc[i]=(Math.random()*5)|0; nv[i]=0; continue; }
-        if (riseMulti(ng, nc, nv, x, y, w, h, STEAM, nc[i], nv[i]) === -1) {
+        // Steam condenses based on temperature now — remove random condensation
+        if (nt[i] < STEAM_CONDENSE) { ng[i] = WATER; nc[i]=(Math.random()*5)|0; nv[i]=0; continue; }
+        if (riseMulti(ng, nc, nv, nt, x, y, w, h, STEAM, nc[i], nv[i]) === -1) {
           nv[i] = 0;
           const side = Math.random() < 0.5 ? -1 : 1;
           const sx = x + side;
           if (sx >= 0 && sx < w && ng[row + sx] === EMPTY) {
-            ng[row + sx] = STEAM; nc[row + sx] = nc[i]; nv[row + sx] = 0;
-            ng[i] = EMPTY; nv[i] = 0;
+            ng[row + sx] = STEAM; nc[row + sx] = nc[i]; nv[row + sx] = 0; nt[row + sx] = nt[i];
+            ng[i] = EMPTY; nv[i] = 0; nt[i] = 0;
           }
         }
       }
 
       // --- SMOKE ---
       else if (el === SMOKE) {
-        if (Math.random() < 0.02) { ng[i] = EMPTY; nv[i] = 0; continue; }
-        if (riseMulti(ng, nc, nv, x, y, w, h, SMOKE, nc[i], nv[i]) === -1) {
+        if (Math.random() < 0.02) { ng[i] = EMPTY; nv[i] = 0; nt[i] = 0; continue; }
+        if (riseMulti(ng, nc, nv, nt, x, y, w, h, SMOKE, nc[i], nv[i]) === -1) {
           nv[i] = 0;
           const side = Math.random() < 0.5 ? -1 : 1;
           const sx = x + side;
           if (sx >= 0 && sx < w && ng[row + sx] === EMPTY) {
-            ng[row + sx] = SMOKE; nc[row + sx] = nc[i]; nv[row + sx] = 0;
-            ng[i] = EMPTY; nv[i] = 0;
+            ng[row + sx] = SMOKE; nc[row + sx] = nc[i]; nv[row + sx] = 0; nt[row + sx] = nt[i];
+            ng[i] = EMPTY; nv[i] = 0; nt[i] = 0;
           }
         }
       }
 
       // --- ICE ---
+      // Phase changes handled by temperature system. Ice just spreads cold to neighbors.
       else if (el === ICE) {
-        let melted = false;
-        for (let dy2 = -1; dy2 <= 1 && !melted; dy2++) {
-          const ny2 = y + dy2;
-          if (ny2 < 0 || ny2 >= h) continue;
-          for (let dx2 = -1; dx2 <= 1 && !melted; dx2++) {
-            const nx2 = x + dx2;
-            if (nx2 < 0 || nx2 >= w) continue;
-            const ni = ny2 * w + nx2;
-            const n = ng[ni];
-            if ((n === FIRE || n === LAVA || n === EMBER) && Math.random() < 0.05) {
-              ng[i] = WATER; nc[i]=(Math.random()*5)|0; nv[i]=0; melted = true;
-            }
-            if (n === WATER && Math.random() < 0.008) {
-              ng[ni] = ICE; nc[ni]=(Math.random()*5)|0; nv[ni]=0;
-            }
-          }
-        }
+        // Nothing — heat propagation and phase changes in the temperature post-pass
       }
 
       // --- PLANT ---
@@ -1289,7 +1320,7 @@ function simulate() {
 
       // --- ACID ---
       else if (el === ACID) {
-        if (fallMulti(ng, nc, nv, x, y, w, h, ACID, nc[i], nv[i], _canDisplaceNone) === -1) {
+        if (fallMulti(ng, nc, nv, nt, x, y, w, h, ACID, nc[i], nv[i], _canDisplaceNone) === -1) {
           // Try dissolving before lateral flow
           let dissolved = false;
           for (let dy2 = -1; dy2 <= 1 && !dissolved; dy2++) {
@@ -1302,13 +1333,13 @@ function simulate() {
               const ni = ny2 * w + nx2;
               const target = ng[ni];
               if (target !== EMPTY && target !== ACID && target !== STONE && target !== VOID && target !== CLONE && target !== GLASS && Math.random() < 0.06) {
-                ng[ni] = EMPTY; nv[ni] = 0;
-                if (Math.random() < 0.5) { ng[i] = EMPTY; nv[i] = 0; dissolved = true; }
+                ng[ni] = EMPTY; nv[ni] = 0; nt[ni] = 0;
+                if (Math.random() < 0.5) { ng[i] = EMPTY; nv[i] = 0; nt[i] = 0; dissolved = true; }
               }
             }
           }
           if (!dissolved) {
-            handleLanding(ng, nc, nv, x, y, w, h, ACID, nc[i], nv[i], belowRow, row, _canDisplaceNone, true);
+            handleLanding(ng, nc, nv, nt, x, y, w, h, ACID, nc[i], nv[i], belowRow, row, _canDisplaceNone, true);
           }
         }
       }
@@ -1324,7 +1355,7 @@ function simulate() {
             if (nx2 < 0 || nx2 >= w) continue;
             const ni = ny2 * w + nx2;
             if (ng[ni] !== EMPTY && ng[ni] !== VOID && ng[ni] !== CLONE) {
-              ng[ni] = EMPTY; nv[ni] = 0;
+              ng[ni] = EMPTY; nv[ni] = 0; nt[ni] = 0;
             }
           }
         }
@@ -1336,12 +1367,12 @@ function simulate() {
           const above = ng[aboveRow + x];
           if (above !== EMPTY && above !== CLONE && above !== VOID) {
             if (y + 1 < h && ng[belowRow + x] === EMPTY) {
-              ng[belowRow + x] = above; nc[belowRow + x] = (Math.random()*5)|0; nv[belowRow + x] = 0;
+              ng[belowRow + x] = above; nc[belowRow + x] = (Math.random()*5)|0; nv[belowRow + x] = 0; nt[belowRow + x] = DEFAULT_TEMP[above];
             } else {
               const side = Math.random() < 0.5 ? -1 : 1;
               const sx = x + side;
               if (sx >= 0 && sx < w && ng[row + sx] === EMPTY) {
-                ng[row + sx] = above; nc[row + sx] = (Math.random()*5)|0; nv[row + sx] = 0;
+                ng[row + sx] = above; nc[row + sx] = (Math.random()*5)|0; nv[row + sx] = 0; nt[row + sx] = DEFAULT_TEMP[above];
               }
             }
           }
@@ -1350,44 +1381,186 @@ function simulate() {
     }
   }
 
+  // --- Heat propagation & phase changes ---
+  // Run every other tick to save cost
+  if (tick & 1) {
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const i = row + x;
+        const el = ng[i];
+        if (el === EMPTY) continue;
+
+        // Heat emitters push toward default temp
+        if (EMIT_HEAT[el]) {
+          const diff = DEFAULT_TEMP[el] - nt[i];
+          if (diff > 0) nt[i] += Math.min(diff, EMIT_HEAT[el]);
+        }
+
+        // Conduct heat to/from neighbors (4-connected)
+        const cond = CONDUCTIVITY[el];
+        if (cond > 0) {
+          const neighbors = [];
+          if (x > 0 && ng[i-1] !== EMPTY) neighbors.push(i-1);
+          if (x < w-1 && ng[i+1] !== EMPTY) neighbors.push(i+1);
+          if (y > 0 && ng[i-w] !== EMPTY) neighbors.push(i-w);
+          if (y < h-1 && ng[i+w] !== EMPTY) neighbors.push(i+w);
+
+          for (let n = 0; n < neighbors.length; n++) {
+            const ni = neighbors[n];
+            const nCond = CONDUCTIVITY[ng[ni]];
+            if (nCond === 0) continue;
+            const rate = ((cond + nCond) >> 3) + 1; // avg conductivity / 4
+            const diff = nt[ni] - nt[i];
+            if (diff > 0) {
+              const transfer = Math.min((diff * rate) >> 8, diff >> 1);
+              nt[i] += transfer;
+              nt[ni] -= transfer;
+            }
+          }
+        }
+
+        // Ambient cooling: everything drifts toward 200 (20°C)
+        if (nt[i] > 200) nt[i] -= 1;
+        else if (nt[i] < 200) nt[i] += 1;
+
+        // --- Phase changes ---
+        const t = nt[i];
+
+        // Water freezes
+        if (el === WATER && t <= WATER_FREEZE) {
+          ng[i] = ICE; nc[i] = (Math.random()*5)|0; nv[i] = 0;
+        }
+        // Water boils
+        else if (el === WATER && t >= WATER_BOIL) {
+          ng[i] = STEAM; nc[i] = (Math.random()*5)|0; nv[i] = 0;
+        }
+        // Ice melts
+        else if (el === ICE && t > ICE_MELT) {
+          ng[i] = WATER; nc[i] = (Math.random()*5)|0; nv[i] = 0;
+        }
+        // Steam condenses
+        else if (el === STEAM && t < STEAM_CONDENSE) {
+          ng[i] = WATER; nc[i] = (Math.random()*5)|0; nv[i] = 0;
+        }
+        // Lava cools to stone
+        else if (el === LAVA && t < LAVA_COOL) {
+          ng[i] = STONE; nc[i] = (Math.random()*5)|0; nv[i] = 0;
+        }
+        // Thermal ignition
+        else if (el === WOOD && t >= WOOD_IGNITE) {
+          ng[i] = FIRE; nc[i] = (Math.random()*5)|0; nv[i] = 0; nt[i] = DEFAULT_TEMP[FIRE];
+        }
+        else if (el === OIL && t >= OIL_IGNITE) {
+          ng[i] = FIRE; nc[i] = (Math.random()*5)|0; nv[i] = 0; nt[i] = DEFAULT_TEMP[FIRE];
+        }
+        else if (el === GUNPOWDER && t >= GUNPOWDER_IGNITE) {
+          ng[i] = FIRE; nc[i] = (Math.random()*5)|0; nv[i] = 0; nt[i] = DEFAULT_TEMP[FIRE];
+        }
+      }
+    }
+  }
+
   const tg = grid; grid = nextGrid; nextGrid = tg;
   const tc = colorGrid; colorGrid = nextColor; nextColor = tc;
   const tv = velGrid; velGrid = nextVel; nextVel = tv;
+  const tt = tempGrid; tempGrid = nextTemp; nextTemp = tt;
 }
 
 // --- Rendering ---
+let thermalView = false;
+
+// Precompute thermal palette (256 entries: blue → cyan → green → yellow → red → white)
+const thermalLUT = new Uint32Array(256);
+(function buildThermalLUT() {
+  function lerp(a, b, t) { return a + (b - a) * t; }
+  const stops = [
+    [0, 20, 60, 180],     // deep blue (cold)
+    [64, 20, 180, 220],   // cyan
+    [128, 20, 200, 20],   // green
+    [192, 240, 220, 20],  // yellow
+    [224, 240, 60, 20],   // red
+    [255, 255, 255, 255], // white hot
+  ];
+  for (let i = 0; i < 256; i++) {
+    let si = 0;
+    while (si < stops.length - 2 && stops[si + 1][0] <= i) si++;
+    const [p0, r0, g0, b0] = stops[si];
+    const [p1, r1, g1, b1] = stops[si + 1];
+    const t = (i - p0) / (p1 - p0);
+    const r = lerp(r0, r1, t) | 0;
+    const g = lerp(g0, g1, t) | 0;
+    const b = lerp(b0, b1, t) | 0;
+    thermalLUT[i] = 0xFF000000 | (b << 16) | (g << 8) | r;
+  }
+})();
+
 function render() {
   if (imgData.width !== W || imgData.height !== H) return;
   const buf32 = new Uint32Array(imgData.data.buffer);
-  const g = grid, c = colorGrid, w = W, h = H, len = w * h;
+  const g = grid, c = colorGrid, t = tempGrid, w = W, h = H, len = w * h;
 
-  // Single top-down pass: propagate water depth via a per-column counter
-  // Avoids O(depth) upward scan per pixel
-  const waterDepth = renderWaterDepth; // reused buffer, reset per column via top-down scan
-  waterDepth.fill(0);
-  for (let y = 0; y < h; y++) {
-    const row = y * w;
-    for (let x = 0; x < w; x++) {
-      const i = row + x;
-      const el = g[i];
-      if (el === WATER) {
-        const d = waterDepth[x];
-        waterDepth[x] = d < 6 ? d + 1 : 6;
-        const cv = c[i];
-        if (d === 0) {
-          buf32[i] = waterSurfaceLUT[cv];
-        } else if (d === 1) {
-          buf32[i] = colorLUT[WATER * 5 + cv];
-        } else if (d === 2) {
-          buf32[i] = waterMidLUT[cv];
-        } else if (d <= 4) {
-          buf32[i] = waterDeepLUT[cv];
+  if (thermalView) {
+    // Thermal camera mode
+    for (let i = 0; i < len; i++) {
+      if (g[i] === EMPTY) { buf32[i] = 0xFF080808; continue; }
+      // Map temp range -500..12000 to 0..255
+      const idx = Math.max(0, Math.min(255, ((t[i] + 500) * 255 / 12500) | 0));
+      buf32[i] = thermalLUT[idx];
+    }
+  } else {
+    // Normal rendering with heat tinting
+    const waterDepth = renderWaterDepth;
+    waterDepth.fill(0);
+    for (let y = 0; y < h; y++) {
+      const row = y * w;
+      for (let x = 0; x < w; x++) {
+        const i = row + x;
+        const el = g[i];
+        let color32;
+        if (el === WATER) {
+          const d = waterDepth[x];
+          waterDepth[x] = d < 6 ? d + 1 : 6;
+          const cv = c[i];
+          if (d === 0) color32 = waterSurfaceLUT[cv];
+          else if (d === 1) color32 = colorLUT[WATER * 5 + cv];
+          else if (d === 2) color32 = waterMidLUT[cv];
+          else if (d <= 4) color32 = waterDeepLUT[cv];
+          else color32 = waterAbyssLUT[cv];
+        } else if (el === EMPTY) {
+          waterDepth[x] = 0;
+          buf32[i] = EMPTY_COLOR32;
+          continue;
         } else {
-          buf32[i] = waterAbyssLUT[cv];
+          waterDepth[x] = 0;
+          color32 = colorLUT[el * 5 + c[i]];
         }
-      } else {
-        waterDepth[x] = 0;
-        buf32[i] = el === EMPTY ? EMPTY_COLOR32 : colorLUT[el * 5 + c[i]];
+
+        // Subtle heat tinting: hot particles get reddish tint, cold get bluish
+        const temp = t[i];
+        if (temp > 600) {
+          // Hot tint: blend toward orange/red
+          const intensity = Math.min((temp - 600) / 8000, 0.5);
+          const r0 = color32 & 0xFF;
+          const g0 = (color32 >> 8) & 0xFF;
+          const b0 = (color32 >> 16) & 0xFF;
+          const r = Math.min(255, r0 + (255 - r0) * intensity | 0);
+          const gv = Math.max(0, g0 - g0 * intensity * 0.5 | 0);
+          const bv = Math.max(0, b0 - b0 * intensity * 0.7 | 0);
+          buf32[i] = 0xFF000000 | (bv << 16) | (gv << 8) | r;
+        } else if (temp < -100) {
+          // Cold tint: blend toward blue
+          const intensity = Math.min((-100 - temp) / 4000, 0.4);
+          const r0 = color32 & 0xFF;
+          const g0 = (color32 >> 8) & 0xFF;
+          const b0 = (color32 >> 16) & 0xFF;
+          const r = Math.max(0, r0 - r0 * intensity | 0);
+          const gv = Math.max(0, g0 + (180 - g0) * intensity * 0.3 | 0);
+          const bv = Math.min(255, b0 + (255 - b0) * intensity | 0);
+          buf32[i] = 0xFF000000 | (bv << 16) | (gv << 8) | r;
+        } else {
+          buf32[i] = color32;
+        }
       }
     }
   }
