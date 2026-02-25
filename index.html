@@ -294,7 +294,8 @@
     <h3>Controls</h3>
     <div class="help-grid">
       <span><kbd>Space</kbd> Pause</span><span><kbd>[ ]</kbd> Brush size</span>
-      <span><kbd>&#8984;&#9003;</kbd> Clear</span><span><kbd>?</kbd> This help</span>
+      <span><kbd>&#8984;&#9003;</kbd> Clear</span><span><kbd>Alt</kbd>+click Pick</span>
+      <span><kbd>?</kbd> This help</span>
     </div>
   </div>
 </div>
@@ -447,6 +448,8 @@ const elMap = {
   metal:METAL, glass:GLASS, dust:DUST, mud:MUD, void:VOID, clone:CLONE, ember:EMBER,
   erase:EMPTY
 };
+const reverseElMap = {};
+for (const [name, id] of Object.entries(elMap)) if (name !== 'erase') reverseElMap[id] = name;
 
 // --- Toolbar ---
 function setActiveElement(name) {
@@ -496,9 +499,16 @@ function screenToSim(clientX, clientY) {
 
 simCanvas.parentElement.addEventListener('mousedown', e => {
   if (e.target.closest('.panel')) return;
-  painting = true;
   [mouseX, mouseY] = screenToSim(e.clientX, e.clientY);
   cursorScreenX = e.clientX; cursorScreenY = e.clientY;
+  // Alt+click = eyedropper
+  if (e.altKey && mouseX >= 0 && mouseX < W && mouseY >= 0 && mouseY < H) {
+    const el = grid[mouseY * W + mouseX];
+    const name = reverseElMap[el];
+    if (name) setActiveElement(name);
+    return;
+  }
+  painting = true;
   prevPaintX = mouseX; prevPaintY = mouseY;
   paintAt(mouseX, mouseY);
 });
